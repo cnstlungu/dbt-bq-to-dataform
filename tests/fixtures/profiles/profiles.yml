@@ -1,0 +1,12 @@
+# A BigQuery profile for parsing the golden example. dbt parse never connects,
+# so the project and dataset need not exist.
+default:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: jaffle-project
+      dataset: jaffle_shop
+      location: US
+      threads: 1

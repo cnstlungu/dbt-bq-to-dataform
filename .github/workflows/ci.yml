@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  # The golden example. examples/jaffle_shop is its converted output, and
+  # test_committed_example_is_current fails when the two disagree, so bump this
+  # and regenerate the example in the same change.
+  JAFFLE_SHOP_REF: 5beb145b00f5465ec759cfcdd9745e858818cf95
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check out the golden example (dbt-labs/jaffle-shop)
+        uses: actions/checkout@v7
+        with:
+          repository: dbt-labs/jaffle-shop
+          ref: ${{ env.JAFFLE_SHOP_REF }}
+          path: _jaffle_shop
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.2.0
+
+      # The tests compile every converted project with the Dataform CLI.
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Run the tests
+        env:
+          DBT2DATAFORM_EXAMPLE: ${{ github.workspace }}/_jaffle_shop
+          DBT2DATAFORM_REQUIRE_EXAMPLE: "1"
+        run: uv run --locked pytest

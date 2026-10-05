@@ -1,0 +1,57 @@
+models:
+  - name: stg_orders
+    columns:
+      - name: id
+        data_tests: [unique, not_null]
+
+  - name: fct_orders
+    description: One row per order.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: id
+        description: Order id.
+        data_type: int64
+        constraints:
+          - type: primary_key
+        data_tests:
+          - unique
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: id
+              config:
+                where: "amount_cents > 0"
+      - name: order_date
+        data_type: date
+      - name: next_day
+        data_type: datetime
+      - name: amount_cents
+        data_type: int64
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [100, 200]
+                quote: false
+              config:
+                severity: warn
+          - positive:
+              config:
+                error_if: ">5"
+      - name: loaded_at
+        data_type: timestamp
+
+unit_tests:
+  - name: amounts_become_cents
+    model: fct_orders
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('stg_orders')
+        rows:
+          - {id: 1, order_date: "2024-01-01", amount: 2}
+    expect:
+      rows:
+        - {id: 1, amount_cents: 200}

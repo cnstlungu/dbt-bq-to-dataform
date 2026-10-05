@@ -1,0 +1,10 @@
+edge:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: edge-project
+      dataset: analytics
+      location: EU
+      threads: 1

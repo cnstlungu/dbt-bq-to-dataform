@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: shop
+    schema: raw_shop
+    tables:
+      - name: orders
+        description: Orders as the shop exports them.
+        config:
+          freshness:
+            error_after: {count: 1, period: day}
+        columns:
+          - name: id
+            data_tests: [not_null]
+      - name: events
+        description: Click events, as Parquet files in GCS.
+        external:
+          location: "{{ env_var('EVENTS_BUCKET', 'gs://edge-bucket') }}/events/*.parquet"
+          options:
+            format: parquet

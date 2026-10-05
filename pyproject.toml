@@ -1,0 +1,43 @@
+[project]
+name = "dbt2dataform"
+version = "0.1.0"
+description = "Convert a dbt-bigquery project into a Dataform project"
+readme = "README.md"
+authors = [
+    { name = "Constantin Lungu", email = "lungupconstantin@gmail.com" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["dbt", "dataform", "bigquery", "migration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "jinja2>=3.1.6",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+dbt2dataform = "dbt2dataform.cli:main"
+
+[project.urls]
+Repository = "https://github.com/cnstlungu/dbt2dataform"
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    # Only needed to parse the test projects. Users bring their own dbt.
+    "dbt-bigquery==1.12.1",
+    "dbt-core==1.12.5",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

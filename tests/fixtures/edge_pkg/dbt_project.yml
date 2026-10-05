@@ -1,0 +1,10 @@
+name: edge_pkg
+version: "1.0"
+config-version: 2
+
+vars:
+  pkg_rate: 3
+
+models:
+  edge_pkg:
+    +schema: pkg

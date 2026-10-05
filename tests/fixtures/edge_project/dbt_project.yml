@@ -1,0 +1,29 @@
+# A dbt-bigquery project exercising what real projects do and the converter
+# has to get right: dispatch, package macros, a ref() override, vars scoped
+# to packages, generic tests with thresholds, seeds with hooks, snapshots.
+name: edge
+version: "1.0"
+config-version: 2
+profile: edge
+
+vars:
+  min_amount: 10
+  regions: ["EU", "US"]
+  edge_pkg:
+    pkg_rate: 5
+
+dispatch:
+  - macro_namespace: edge_pkg
+    search_order: ["edge", "edge_pkg"]
+
+models:
+  edge:
+    +materialized: table
+
+seeds:
+  edge:
+    +schema: ref_data
+    people:
+      +column_types:
+        id: int64
+      +post-hook: "ALTER TABLE {{ this }} SET OPTIONS (description = 'people')"
