@@ -161,6 +161,35 @@ def test_what_cannot_be_converted_is_flagged(edge):
         assert expected in contract
 
 
+def test_every_test_that_will_not_run_is_named(edge):
+    converter, _ = edge
+    report = converter.report.render()
+    section = report.split("## Tests that will not run")[1].split("\n## ")[0]
+    assert "| `fct_orders.amounts_become_cents` | `fct_orders` | dbt unit test" in section
+    tests_line = next(m for msgs in issues(converter, "info").values() for m in msgs if "dbt tests became" in m)
+    assert tests_line.startswith("8 enabled dbt tests became")
+
+
+def test_tests_of_disabled_models_are_named(tmp_path):
+    project = tmp_path / "proj"
+    (project / "models").mkdir(parents=True)
+    (project / "dbt_project.yml").write_text("name: proj\nprofile: edge\nversion: '1.0'\nconfig-version: 2\n")
+    (project / "models" / "live.sql").write_text("{% set r = run_query('select 1') %}\nSELECT 1 AS id")
+    (project / "models" / "parked.sql").write_text("{{ config(enabled=false) }}\nSELECT 1 AS id")
+    (project / "models" / "schema.yml").write_text(
+        "models:\n"
+        "  - name: live\n    columns:\n      - name: id\n        data_tests: [not_null, unique]\n"
+        "  - name: parked\n    columns:\n      - name: id\n        data_tests: [not_null]\n"
+    )
+    converter, _ = convert(project, profiles_dir=EDGE)
+    idle = {converter.report.short(test).split(".")[0]: (tested, why) for test, tested, why in converter.report.idle_tests}
+    for name in ("not_null_live_id", "unique_live_id"):
+        assert idle[name][0] == "model.proj.live" and "written disabled" in idle[name][1]
+    infos = [m for msgs in issues(converter, "info").values() for m in msgs]
+    assert any("2 of the converted ones test models written disabled" in m for m in infos)
+    assert any("disabled in dbt, so not converted" in m and "test" in m for m in infos)
+
+
 def test_edge_project_compiles(edge, tmp_path):
     _, files = edge
     compiled = compile_dataform(files, tmp_path / "edge")
