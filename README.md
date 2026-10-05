@@ -180,12 +180,14 @@ These are reported, not converted:
 - **Schema and database names** come from the parse target. They include
   whatever a custom `generate_schema_name` returned for that target.
 
-### Not verified against data
+### Verified on one project, not on yours
 
 The tests check that conversions render through dbt's macros and compile in
-Dataform. They don't run the result on BigQuery. A converted project is only
-as correct as its SQL, which is the SQL dbt would run. Run it against a copy
-of your data before you switch.
+Dataform; they don't run the result on BigQuery. jaffle-shop was also built
+on BigQuery both ways (see below) and matched dbt-bigquery row for row. That
+is one small project with no incremental models, so it says nothing about
+those paths. Run your converted project against a copy of your data before
+you switch.
 
 ## Results on public projects
 
@@ -201,6 +203,22 @@ included:
 CI converts and compiles jaffle-shop, at a pinned commit, on every run. Its
 converted files are not committed: jaffle-shop has no licence, so its code
 cannot be redistributed.
+
+**Built on BigQuery, compared with dbt.** On 2026-10-05, jaffle-shop (same
+commit) was run on BigQuery twice from the same raw tables:
+- once with dbt-bigquery 1.12.1;
+- once as converted by this tool, with the Dataform CLI 3.0.71.
+
+All 13 models matched dbt's build, 7 tables and 6 views, on these checks:
+- **Schemas:** the same column names, types and order.
+- **Row counts:** the same, from 6 rows (`locations`) to 90,900 (`order_items`).
+- **Rows:** compared as multisets, no row was on one side only.
+
+The models included surrogate keys from `dbt_utils.generate_surrogate_key`,
+the dispatched `cents_to_dollars` macro, and the `date_spine` that dbt sizes
+with a warehouse query. All 27 of dbt's data tests passed, as did the 21
+Dataform assertions they became. The two builds and the comparison billed
+under 1 GiB.
 
 ## Settings file and overrides
 
