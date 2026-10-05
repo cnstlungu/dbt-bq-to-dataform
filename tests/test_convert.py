@@ -302,8 +302,8 @@ def test_jaffle_shop(tmp_path):
     _, files = convert(JAFFLE, profiles_dir=PROFILES)
     disabled = [p for p, c in files.items() if "disabled: true" in c]
     assert not disabled, disabled
-    stg = files["definitions/staging/stg_orders.sqlx"]
-    assert "round(cast((order_total / 100) as numeric), 2)" in stg  # bigquery__cents_to_dollars
+    # Assertions name models and count actions only: no SQL from jaffle-shop,
+    # which has no licence, is quoted here or printed when one fails.
     compiled = compile_dataform(files, tmp_path / "jaffle")
     tables = {t["target"]["name"] for t in compiled["tables"]}
     assert {"orders", "customers", "metricflow_time_spine"} <= tables
