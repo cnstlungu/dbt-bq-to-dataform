@@ -1,8 +1,8 @@
-dbt2dataform
+dbt-bq-to-dataform
 Copyright (c) 2026 Constantin Lungu
 Licensed under the MIT License; see LICENSE.
 
-dbt2dataform reimplements behaviour of dbt-core and dbt-bigquery so that it
+dbt-bq-to-dataform reimplements behaviour of dbt-core and dbt-bigquery so that it
 can render a dbt project the way dbt does: how macro names resolve, how
 adapter.dispatch searches packages, how generic test arguments are rendered,
 and how seed column types are inferred. These were written by reading the
@@ -14,13 +14,13 @@ source of:
 
 Copyright dbt Labs, Inc. The regular expression that decides which test
 arguments are rendered as Jinja is taken from dbt-core's
-dbt/clients/jinja.py. No other dbt code is included; at run time dbt2dataform
+dbt/clients/jinja.py. No other dbt code is included; at run time dbt-bq-to-dataform
 uses the dbt installation the user provides.
 
-The helper that dbt2dataform writes into every converted project,
-includes/dbt2dataform.js, is licensed under MIT No Attribution (MIT-0), so
+The helper that dbt-bq-to-dataform writes into every converted project,
+includes/dbt_bq_to_dataform.js, is licensed under MIT No Attribution (MIT-0), so
 converted projects carry no obligation to this project.
 
 dbt is a trademark of dbt Labs, Inc. Dataform and BigQuery are trademarks of
-Google LLC. dbt2dataform is an independent project, not affiliated with or
+Google LLC. dbt-bq-to-dataform is an independent project, not affiliated with or
 endorsed by either.

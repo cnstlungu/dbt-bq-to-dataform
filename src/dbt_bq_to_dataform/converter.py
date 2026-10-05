@@ -18,7 +18,7 @@ from .sqlx import JS, commented, js_string, merge_incremental, replace_tokens, s
 from .tokens import TokenRegistry
 
 RESOURCES = Path(__file__).parent / "resources"
-STATE_FILE = ".dbt2dataform.json"
+STATE_FILE = ".dbt-bq-to-dataform.json"
 DEFAULT_LOCATION = "US"
 # Older CLIs and cores silently drop config such as onSchemaChange.
 DEFAULT_CORE_VERSION = "3.0.71"
@@ -128,7 +128,7 @@ class Converter:
         if not dbt_version_supported(version):
             self.report.warning(
                 "dbt",
-                f"the manifest comes from dbt-core {version}; dbt2dataform is tested "
+                f"the manifest comes from dbt-core {version}; dbt-bq-to-dataform is tested "
                 "with dbt-core 1.8 to 1.12.",
             )
         for env_name in self.project.parse_env:
@@ -428,10 +428,10 @@ class Converter:
             )
         else:
             # No loaded_at_field: dbt-bigquery reads the table's last-modified time.
-            self.includes_used.add("dbt2dataform")
+            self.includes_used.add("dbt_bq_to_dataform")
             body = (
                 f"SELECT last_modified\n"
-                f"FROM (SELECT ${{dbt2dataform.last_modified({ref})}} AS last_modified)\n"
+                f"FROM (SELECT ${{dbt_bq_to_dataform.last_modified({ref})}} AS last_modified)\n"
                 f"WHERE last_modified < {threshold}\n"
             )
         name = f"source_freshness_{s['source_name']}_{target.name}"
@@ -477,7 +477,7 @@ class Converter:
                 self.report.info(
                     uid,
                     "seed column types follow dbt's inference rules as written in "
-                    "dbt2dataform; install dbt-bigquery alongside it to use dbt's own.",
+                    "dbt-bq-to-dataform; install dbt-bigquery alongside it to use dbt's own.",
                 )
             try:
                 pre, post = self._hooks(n)
@@ -563,7 +563,7 @@ class Converter:
                 self.report.manual(uid, f"not converted, written disabled: {exc}")
                 self._fail(uid, str(exc))
                 body = (
-                    f"-- dbt2dataform could not convert this model: {exc}\n"
+                    f"-- dbt-bq-to-dataform could not convert this model: {exc}\n"
                     "-- The original dbt SQL follows; port it by hand and remove `disabled`.\n"
                     f"{commented(n['raw_code'])}\n"
                     "SELECT 1 AS placeholder\n"
@@ -712,7 +712,7 @@ class Converter:
         ]
         if not expected:
             return
-        self.includes_used.add("dbt2dataform")
+        self.includes_used.add("dbt_bq_to_dataform")
         rows = ",\n".join(
             f"    STRUCT({_sql_string(c)} AS column_name, {_sql_string(t)} AS data_type)" for c, t in expected
         )
@@ -724,7 +724,7 @@ class Converter:
             "),\n\n"
             "actual AS (\n"
             "  SELECT column_name, REGEXP_REPLACE(UPPER(data_type), r'\\([^)]*\\)', '') AS data_type\n"
-            f"  FROM ${{dbt2dataform.information_schema_columns({self._ref_js(uid)})}}\n"
+            f"  FROM ${{dbt_bq_to_dataform.information_schema_columns({self._ref_js(uid)})}}\n"
             ")\n\n"
             "SELECT\n"
             "  COALESCE(e.column_name, a.column_name) AS column_name,\n"
@@ -1214,7 +1214,7 @@ def write_output(files: dict[str, str], out_dir: Path, force: bool) -> None:
         previous = json.loads(state.read_text()).get("files", [])
     elif any(out_dir.iterdir()) and not force:
         raise FileExistsError(
-            f"{out_dir} is not empty and was not written by dbt2dataform; pass --force to write into it"
+            f"{out_dir} is not empty and was not written by dbt-bq-to-dataform; pass --force to write into it"
         )
     # Checked before anything is touched: a file the previous run did not
     # write is someone else's, and --force never overwrites it.
@@ -1224,7 +1224,7 @@ def write_output(files: dict[str, str], out_dir: Path, force: bool) -> None:
     )
     if clashes:
         raise FileExistsError(
-            "these files exist and were not written by dbt2dataform, so they were left "
+            "these files exist and were not written by dbt-bq-to-dataform, so they were left "
             "alone and nothing was written; move them out of the way first: " + ", ".join(clashes)
         )
     for rel in previous:

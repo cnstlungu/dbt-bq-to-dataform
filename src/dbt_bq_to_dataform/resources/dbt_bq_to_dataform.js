@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT-0
-// Written into this project by dbt2dataform (https://github.com/cnstlungu/dbt2dataform).
+// Written into this project by dbt-bq-to-dataform (https://github.com/cnstlungu/dbt-bq-to-dataform).
 // Use, modify and redistribute it freely; no attribution is required.
 
 /**
- * Helpers for constructs dbt2dataform ported from dbt.
+ * Helpers for constructs dbt-bq-to-dataform ported from dbt.
  */
 
 function parse(relation) {
@@ -19,7 +19,7 @@ function parse(relation) {
  * The column names and types of a relation, from INFORMATION_SCHEMA.
  * Pass the result of ref(), which also records the dependency:
  *
- *   SELECT * FROM ${dbt2dataform.information_schema_columns(ref("dim_date"))}
+ *   SELECT * FROM ${dbt_bq_to_dataform.information_schema_columns(ref("dim_date"))}
  *
  * @param {string} relation a quoted name as ref() returns it: `project.dataset.table`
  */

@@ -22,7 +22,7 @@ _MISSING_ENV = re.compile(r"Env var required but not provided: '([^']+)'")
 # Value given to an env var dbt insists on at parse time. Anything rendered
 # from it is re-derived from the raw YAML/SQL, so the value never reaches the
 # output; the marker just makes a leak easy to spot.
-ENV_PLACEHOLDER = "__dbt2dataform_env_{}__"
+ENV_PLACEHOLDER = "__dbt_bq_to_dataform_env_{}__"
 # The dbt-core releases whose manifest (v12) this converter is tested against.
 SUPPORTED_DBT = ((1, 8), (1, 12))
 INTERNAL_PACKAGES = ("dbt", "dbt_bigquery")
@@ -208,7 +208,7 @@ def load_project(
         if work is not None:
             shutil.rmtree(work, ignore_errors=True)
         raise ProjectError(
-            f"this is a dbt-{adapter} project. dbt2dataform converts dbt-bigquery "
+            f"this is a dbt-{adapter} project. dbt-bq-to-dataform converts dbt-bigquery "
             "projects only: Dataform runs on BigQuery, and translating SQL between "
             "warehouses is a different job. Move the project to dbt-bigquery first "
             "(BigQuery's SQL translation service can help), then convert it."
@@ -237,7 +237,7 @@ def dbt_version_supported(version: str) -> bool:
 def _dbt_argv(dbt_command: str | None) -> list[str]:
     if dbt_command:
         return dbt_command.split()
-    # dbt installed next to this tool (`uvx --with dbt-bigquery dbt2dataform`)
+    # dbt installed next to this tool (`uvx --with dbt-bigquery dbt-bq-to-dataform`)
     # comes with the adapter the user asked for; a dbt elsewhere on PATH may not.
     if importlib.util.find_spec("dbt.cli") is not None:
         # What the `dbt` console script runs; `-m dbt.cli.main` warns on stderr.
@@ -247,7 +247,7 @@ def _dbt_argv(dbt_command: str | None) -> list[str]:
         return [found]
     raise ProjectError(
         "dbt is not installed. Install dbt-core and dbt-bigquery next to "
-        "dbt2dataform (`uvx --with dbt-core --with dbt-bigquery dbt2dataform ...`), "
+        "dbt-bq-to-dataform (`uvx --with dbt-core --with dbt-bigquery dbt-bq-to-dataform ...`), "
         "put dbt on PATH, or pass --dbt or --manifest."
     )
 
@@ -266,7 +266,7 @@ def _parse(
     copy stays until the conversion finishes, because package seeds and
     package YAML are read from its dbt_packages/.
     """
-    work_root = Path(tempfile.mkdtemp(prefix="dbt2dataform-"))
+    work_root = Path(tempfile.mkdtemp(prefix="dbt-bq-to-dataform-"))
     work = work_root / project_dir.name
     try:
         shutil.copytree(

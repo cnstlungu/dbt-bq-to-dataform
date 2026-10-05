@@ -575,9 +575,9 @@ class Renderer:
         single = _SINGLE_EXPRESSION.match(text)
         if single and not any(mark in single.group(1) for mark in ("{{", "}}", "{%", "%}")):
             # One list per scope: the context caches what a name resolved to.
-            holder: list = scope.members.setdefault("__dbt2dataform_native__", [])
+            holder: list = scope.members.setdefault("__dbt_bq_to_dataform_native__", [])
             holder.clear()
-            self._render_in(scope, "{%- do __dbt2dataform_native__.append(" + single.group(1) + ") -%}")
+            self._render_in(scope, "{%- do __dbt_bq_to_dataform_native__.append(" + single.group(1) + ") -%}")
             return holder[0]
         return _as_native(self._render_in(scope, text))
 

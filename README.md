@@ -1,6 +1,6 @@
-# dbt2dataform
+# dbt-bq-to-dataform
 
-[![CI](https://github.com/cnstlungu/dbt2dataform/actions/workflows/ci.yml/badge.svg)](https://github.com/cnstlungu/dbt2dataform/actions/workflows/ci.yml)
+[![CI](https://github.com/cnstlungu/dbt-bq-to-dataform/actions/workflows/ci.yml/badge.svg)](https://github.com/cnstlungu/dbt-bq-to-dataform/actions/workflows/ci.yml)
 
 Converts a **dbt-bigquery** project into a Dataform project. It converts
 models, seeds, sources, tests, contracts, source freshness, hooks, vars and
@@ -32,9 +32,9 @@ constructs around it become Dataform: `ref()`, `source()`, `this`, vars,
 ## Quick start
 
 ```bash
-uvx --from git+https://github.com/cnstlungu/dbt2dataform@v0.1.0 \
+uvx --from git+https://github.com/cnstlungu/dbt-bq-to-dataform@v0.1.0 \
     --with dbt-core --with dbt-bigquery \
-    dbt2dataform path/to/dbt_project out/dataform_project
+    dbt-bq-to-dataform path/to/dbt_project out/dataform_project
 ```
 
 The tool runs `dbt deps` and `dbt parse` on a temporary copy of the project,
@@ -55,7 +55,7 @@ cd out/dataform_project && npx @dataform/cli@3.0.71 compile
 ```
 
 Running the tool again into the same directory replaces only the files the
-previous run wrote. It records them in `.dbt2dataform.json`. It never
+previous run wrote. It records them in `.dbt-bq-to-dataform.json`. It never
 overwrites a file it did not write, even with `--force`, which only allows a
 first run into a non-empty directory. If a generated file would land on one,
 nothing is written and the error names the file. A `.gitignore` that was
@@ -204,7 +204,7 @@ cannot be redistributed.
 
 ## Settings file and overrides
 
-A `dbt2dataform.yml` in the output directory, or one passed with `--config`,
+A `dbt-bq-to-dataform.yml` in the output directory, or one passed with `--config`,
 holds the flags, so a generated project can be regenerated with one command.
 Command-line flags win over it. It can also add Dataform config that has no
 dbt counterpart, such as schedule tags:
@@ -270,25 +270,25 @@ The tests do two things:
   ([`tests/fixtures/edge_project`](tests/fixtures/edge_project), with a local
   package) and compile the result with the Dataform CLI through `npx`.
 - **jaffle-shop.** They do the same for dbt-labs/jaffle-shop. It is read
-  from `../jaffle-shop`, or from `DBT2DATAFORM_EXAMPLE`, and skipped when
+  from `../jaffle-shop`, or from `DBT_BQ_TO_DATAFORM_EXAMPLE`, and skipped when
   missing. CI checks it out at a pinned commit and sets
-  `DBT2DATAFORM_REQUIRE_EXAMPLE=1`.
+  `DBT_BQ_TO_DATAFORM_REQUIRE_EXAMPLE=1`.
 
-Set `DBT2DATAFORM_SKIP_COMPILE=1` to skip compiling.
+Set `DBT_BQ_TO_DATAFORM_SKIP_COMPILE=1` to skip compiling.
 
 ## License and trademarks
 
-dbt2dataform is released under the [MIT License](LICENSE). The converter is
+dbt-bq-to-dataform is released under the [MIT License](LICENSE). The converter is
 provided as is, without warranty; review a converted project before you rely
 on it.
 
 - **Your output is yours.** A converted project is a translation of your dbt
   project, under whatever terms that project has. The one file the converter
-  adds from its own code, `includes/dbt2dataform.js`, is MIT-0 (MIT No
+  adds from its own code, `includes/dbt_bq_to_dataform.js`, is MIT-0 (MIT No
   Attribution), so it asks nothing of you.
 - **dbt behaviour.** Parts of the converter reimplement dbt-core and
   dbt-bigquery behaviour (Apache License 2.0). [NOTICE](NOTICE) credits them.
-  No dbt code ships with dbt2dataform; it uses the dbt you install.
+  No dbt code ships with dbt-bq-to-dataform; it uses the dbt you install.
 - **Trademarks.** dbt is a trademark of dbt Labs, Inc. Dataform and BigQuery
   are trademarks of Google LLC. This is an independent project, not
   affiliated with or endorsed by either.

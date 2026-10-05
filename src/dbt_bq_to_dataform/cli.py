@@ -1,4 +1,4 @@
-"""dbt2dataform command line."""
+"""dbt-bq-to-dataform command line."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .settings import SETTINGS_FILE, SettingsError, load_settings
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="dbt2dataform",
+        prog="dbt-bq-to-dataform",
         description="Convert a dbt-bigquery project into a Dataform project.",
     )
     parser.add_argument("project_dir", type=Path, help="the dbt project (holds dbt_project.yml)")
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="write into a non-empty directory not made by dbt2dataform (existing files are never overwritten)",
+        help="write into a non-empty directory not made by dbt-bq-to-dataform (existing files are never overwritten)",
     )
     args = parser.parse_args(argv)
 

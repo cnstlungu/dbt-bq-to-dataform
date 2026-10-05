@@ -5,11 +5,11 @@ edge_pkg) exercises what real projects lean on: dispatch, package macros,
 ref() overrides, scoped vars, tests with thresholds, seeds with hooks.
 
 dbt-labs/jaffle-shop is converted too, as a real-world project, from the
-checkout DBT2DATAFORM_EXAMPLE names (default ../jaffle-shop). Nothing of it is
+checkout DBT_BQ_TO_DATAFORM_EXAMPLE names (default ../jaffle-shop). Nothing of it is
 committed: it has no licence, so its code cannot be redistributed. The test is
-skipped when the checkout is absent, unless DBT2DATAFORM_REQUIRE_EXAMPLE is set
+skipped when the checkout is absent, unless DBT_BQ_TO_DATAFORM_REQUIRE_EXAMPLE is set
 (CI sets it, and pins the commit). Compiling needs `npx`; set
-DBT2DATAFORM_SKIP_COMPILE=1 to skip that.
+DBT_BQ_TO_DATAFORM_SKIP_COMPILE=1 to skip that.
 """
 
 import json
@@ -20,18 +20,18 @@ from pathlib import Path
 
 import pytest
 
-from dbt2dataform.cli import main
-from dbt2dataform.converter import Converter, Options, write_output
-from dbt2dataform.dbt_project import ProjectError, load_project
+from dbt_bq_to_dataform.cli import main
+from dbt_bq_to_dataform.converter import Converter, Options, write_output
+from dbt_bq_to_dataform.dbt_project import ProjectError, load_project
 
 HERE = Path(__file__).parent
 EDGE = HERE / "fixtures" / "edge_project"
 PROFILES = HERE / "fixtures" / "profiles"
-JAFFLE = Path(os.environ.get("DBT2DATAFORM_EXAMPLE") or HERE.parent.parent / "jaffle-shop")
+JAFFLE = Path(os.environ.get("DBT_BQ_TO_DATAFORM_EXAMPLE") or HERE.parent.parent / "jaffle-shop")
 DATAFORM_CLI = "@dataform/cli@3.0.71"
 
 needs_jaffle = pytest.mark.skipif(
-    not JAFFLE.exists() and not os.environ.get("DBT2DATAFORM_REQUIRE_EXAMPLE"),
+    not JAFFLE.exists() and not os.environ.get("DBT_BQ_TO_DATAFORM_REQUIRE_EXAMPLE"),
     reason="jaffle-shop checkout not found",
 )
 
@@ -46,7 +46,7 @@ def convert(project_dir: Path, profiles_dir: Path | None = None, **options):
 
 
 def compile_dataform(files: dict[str, str], out: Path) -> dict:
-    if os.environ.get("DBT2DATAFORM_SKIP_COMPILE") or not shutil.which("npx"):
+    if os.environ.get("DBT_BQ_TO_DATAFORM_SKIP_COMPILE") or not shutil.which("npx"):
         pytest.skip("Dataform compile disabled or npx missing")
     write_output(files, out, force=False)
     proc = subprocess.run(
@@ -145,7 +145,7 @@ def test_sources_seeds_and_snapshots(edge):
     assert "CREATE OR REPLACE EXTERNAL TABLE ${self()}" in events
     assert "uris = ['${dataform.projectConfig.vars.events_bucket}/events/*.parquet']" in events
     fresh = files["definitions/assertions/freshness/source_freshness_shop_orders.sqlx"]
-    assert 'dbt2dataform.last_modified(ref("raw_shop", "orders"))' in fresh
+    assert 'dbt_bq_to_dataform.last_modified(ref("raw_shop", "orders"))' in fresh
 
     seed = files["definitions/seeds/people.sqlx"]
     # As dbt-bigquery loads it: an all-empty column is INT64.
@@ -244,7 +244,7 @@ def test_keeps_a_gitignore_it_did_not_write(edge, tmp_path):
     write_output(files, tmp_path, force=False)
     assert (tmp_path / ".gitignore").read_text() == "data/\n"
     assert (tmp_path / "empty_but_not_ours").is_dir()
-    assert ".gitignore" not in json.loads((tmp_path / ".dbt2dataform.json").read_text())["files"]
+    assert ".gitignore" not in json.loads((tmp_path / ".dbt-bq-to-dataform.json").read_text())["files"]
 
 
 def test_refuses_a_foreign_non_empty_directory(edge, tmp_path):
@@ -272,7 +272,7 @@ def test_overrides(tmp_path):
     assert 'type: "table"' in stg and 'tags: ["daily"]' in stg
     assert "tags" not in files["definitions/sources/shop/orders.sqlx"]  # declarations take no tags
     assert 'tags: ["daily"]' in files["definitions/assertions/one_row_per_order.sqlx"]
-    assert "override `no_such_model` matched no action." in issues(converter, "warning")["dbt2dataform.yml"]
+    assert "override `no_such_model` matched no action." in issues(converter, "warning")["dbt-bq-to-dataform.yml"]
     compiled = compile_dataform(files, tmp_path / "overrides")
     fct_compiled = next(t for t in compiled["tables"] if t["target"]["name"] == "fct_orders")
     assert fct_compiled["bigquery"]["partitionBy"] == "order_date"
@@ -281,7 +281,7 @@ def test_overrides(tmp_path):
 def test_settings_file(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
-    (out / "dbt2dataform.yml").write_text(
+    (out / "dbt-bq-to-dataform.yml").write_text(
         "default_project: from-file\n"
         "default_location: EU\n"
         "vars: {min_amount: 25, dbt_env_label: prod}\n"
@@ -293,7 +293,7 @@ def test_settings_file(tmp_path):
     assert "defaultProject: from-file" in settings and "defaultLocation: EU" in settings
     assert 'min_amount: "25"' in settings and 'dbt_env_label: "cli"' in settings  # flags win
     assert 'clusterBy: ["order_date"]' in (out / "definitions/marts/fct_orders.sqlx").read_text()
-    (out / "dbt2dataform.yml").write_text("default_projct: typo\n")
+    (out / "dbt-bq-to-dataform.yml").write_text("default_projct: typo\n")
     assert main([str(EDGE), str(out)]) == 2
 
 

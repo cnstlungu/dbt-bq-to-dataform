@@ -1,4 +1,4 @@
-"""The optional settings file, dbt2dataform.yml, and the overrides it carries.
+"""The optional settings file, dbt-bq-to-dataform.yml, and the overrides it carries.
 
 A settings file makes a conversion repeatable: a repository that holds a
 generated Dataform project keeps the flags it was generated with next to it,
@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-SETTINGS_FILE = "dbt2dataform.yml"
+SETTINGS_FILE = "dbt-bq-to-dataform.yml"
 _KEYS = {
     "default_project",
     "default_location",

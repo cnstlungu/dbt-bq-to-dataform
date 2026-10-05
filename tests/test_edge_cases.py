@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from dbt2dataform import seeds as seedlib
-from dbt2dataform.converter import Converter, Options, write_output
-from dbt2dataform.dbt_project import load_project
+from dbt_bq_to_dataform import seeds as seedlib
+from dbt_bq_to_dataform.converter import Converter, Options, write_output
+from dbt_bq_to_dataform.dbt_project import load_project
 
 from test_convert import EDGE, compile_dataform, issues
 
@@ -208,4 +208,4 @@ def test_regeneration_never_overwrites_files_it_did_not_write(tmp_path):
     assert (out / "definitions" / "b.sqlx").read_text() == "-- written by hand"
     with pytest.raises(FileExistsError, match="b.sqlx"):
         write_output({"definitions/b.sqlx": "SELECT 2"}, out, force=True)
-    assert json.loads((out / ".dbt2dataform.json").read_text())["files"] == ["definitions/a.sqlx"]
+    assert json.loads((out / ".dbt-bq-to-dataform.json").read_text())["files"] == ["definitions/a.sqlx"]

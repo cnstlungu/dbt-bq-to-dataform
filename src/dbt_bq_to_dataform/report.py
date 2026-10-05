@@ -67,7 +67,7 @@ class Report:
         out.append(f"# Conversion report: {self.project_name}\n")
         out.append(
             f"Converted from a dbt-bigquery project (parsed with dbt-core "
-            f"{self.dbt_version}) into a Dataform project by `dbt2dataform`.\n"
+            f"{self.dbt_version}) into a Dataform project by `dbt-bq-to-dataform`.\n"
         )
         types = Counter(m.dataform_type for m in self.mappings)
         c = self.counts()

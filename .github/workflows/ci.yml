@@ -39,6 +39,6 @@ jobs:
 
       - name: Run the tests
         env:
-          DBT2DATAFORM_EXAMPLE: ${{ github.workspace }}/_jaffle_shop
-          DBT2DATAFORM_REQUIRE_EXAMPLE: "1"
+          DBT_BQ_TO_DATAFORM_EXAMPLE: ${{ github.workspace }}/_jaffle_shop
+          DBT_BQ_TO_DATAFORM_REQUIRE_EXAMPLE: "1"
         run: uv run --locked pytest

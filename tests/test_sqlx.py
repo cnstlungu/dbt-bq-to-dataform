@@ -1,6 +1,6 @@
-from dbt2dataform.sqlx import JS, config_block, merge_incremental
-from dbt2dataform.tokens import TokenRegistry
-from dbt2dataform.sqlx import replace_tokens
+from dbt_bq_to_dataform.sqlx import JS, config_block, merge_incremental
+from dbt_bq_to_dataform.tokens import TokenRegistry
+from dbt_bq_to_dataform.sqlx import replace_tokens
 
 
 def test_identical_renders_are_left_alone():

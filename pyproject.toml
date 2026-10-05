@@ -1,5 +1,5 @@
 [project]
-name = "dbt2dataform"
+name = "dbt-bq-to-dataform"
 version = "0.1.0"
 description = "Convert a dbt-bigquery project into a Dataform project"
 readme = "README.md"
@@ -22,10 +22,10 @@ dependencies = [
 ]
 
 [project.scripts]
-dbt2dataform = "dbt2dataform.cli:main"
+dbt-bq-to-dataform = "dbt_bq_to_dataform.cli:main"
 
 [project.urls]
-Repository = "https://github.com/cnstlungu/dbt2dataform"
+Repository = "https://github.com/cnstlungu/dbt-bq-to-dataform"
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]
