@@ -4,10 +4,12 @@ The edge fixture (tests/fixtures/edge_project, with its local package
 edge_pkg) exercises what real projects lean on: dispatch, package macros,
 ref() overrides, scoped vars, tests with thresholds, seeds with hooks.
 
-The golden example is dbt-labs/jaffle-shop, parsed as a BigQuery project. It
-is read from the checkout DBT2DATAFORM_EXAMPLE names (default ../jaffle-shop)
-and skipped when absent, unless DBT2DATAFORM_REQUIRE_EXAMPLE is set (CI sets
-it). Compiling needs `npx`; set DBT2DATAFORM_SKIP_COMPILE=1 to skip that.
+dbt-labs/jaffle-shop is converted too, as a real-world project, from the
+checkout DBT2DATAFORM_EXAMPLE names (default ../jaffle-shop). Nothing of it is
+committed: it has no licence, so its code cannot be redistributed. The test is
+skipped when the checkout is absent, unless DBT2DATAFORM_REQUIRE_EXAMPLE is set
+(CI sets it, and pins the commit). Compiling needs `npx`; set
+DBT2DATAFORM_SKIP_COMPILE=1 to skip that.
 """
 
 import json
@@ -26,8 +28,6 @@ HERE = Path(__file__).parent
 EDGE = HERE / "fixtures" / "edge_project"
 PROFILES = HERE / "fixtures" / "profiles"
 JAFFLE = Path(os.environ.get("DBT2DATAFORM_EXAMPLE") or HERE.parent.parent / "jaffle-shop")
-JAFFLE_COMMIT = "5beb145b00f5465ec759cfcdd9745e858818cf95"
-EXAMPLE = HERE.parent / "examples" / "jaffle_shop"
 DATAFORM_CLI = "@dataform/cli@3.0.71"
 
 needs_jaffle = pytest.mark.skipif(
@@ -307,16 +307,3 @@ def test_jaffle_shop(tmp_path):
     compiled = compile_dataform(files, tmp_path / "jaffle")
     tables = {t["target"]["name"] for t in compiled["tables"]}
     assert {"orders", "customers", "metricflow_time_spine"} <= tables
-
-
-@needs_jaffle
-def test_committed_example_is_current():
-    """examples/jaffle_shop is jaffle-shop's conversion; regenerate it when this fails:
-
-    git clone https://github.com/dbt-labs/jaffle-shop ../jaffle-shop
-    git -C ../jaffle-shop checkout 5beb145b00f5465ec759cfcdd9745e858818cf95
-    uv run dbt2dataform ../jaffle-shop examples/jaffle_shop --profiles-dir tests/fixtures/profiles
-    """
-    _, files = convert(JAFFLE, profiles_dir=PROFILES)
-    stale = [rel for rel, content in files.items() if (EXAMPLE / rel).read_text() != content]
-    assert not stale, f"regenerate the example; changed: {stale}"

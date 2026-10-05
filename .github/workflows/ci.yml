@@ -7,9 +7,9 @@ on:
     branches: ["main"]
 
 env:
-  # The golden example. examples/jaffle_shop is its converted output, and
-  # test_committed_example_is_current fails when the two disagree, so bump this
-  # and regenerate the example in the same change.
+  # A real-world project the tests convert and compile. It is checked out here
+  # rather than committed: jaffle-shop has no licence, so it cannot be
+  # redistributed.
   JAFFLE_SHOP_REF: 5beb145b00f5465ec759cfcdd9745e858818cf95
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Check out the golden example (dbt-labs/jaffle-shop)
+      - name: Check out dbt-labs/jaffle-shop
         uses: actions/checkout@v7
         with:
           repository: dbt-labs/jaffle-shop
