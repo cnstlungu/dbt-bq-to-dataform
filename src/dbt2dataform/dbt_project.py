@@ -42,6 +42,8 @@ class DbtProject:
     # Where `dbt deps` installed packages: inside the parse copy when we parsed.
     packages_dir: Path | None = None
     work_dir: Path | None = None
+    # dbt's `target`: name, schema/dataset, database/project, location, threads
+    target: dict = field(default_factory=dict)
     _package_yml: dict = field(default_factory=dict)
     _vars: dict = field(default_factory=dict)
 
@@ -190,6 +192,7 @@ def load_project(
     project_yml = yaml.safe_load(project_file.read_text()) or {}
     install_path = project_yml.get("packages-install-path") or "dbt_packages"
 
+    profiles_dir = _profiles_dir(project_dir, profiles_dir)
     parse_env: dict[str, str] = {}
     work = None
     if manifest_path is None:
@@ -219,6 +222,7 @@ def load_project(
         parse_env=parse_env,
         packages_dir=packages_dir,
         work_dir=work,
+        target=_read_target(profiles_dir, profile or project_yml.get("profile"), target),
     )
 
 
@@ -262,16 +266,6 @@ def _parse(
     copy stays until the conversion finishes, because package seeds and
     package YAML are read from its dbt_packages/.
     """
-    if profiles_dir is None:
-        env_dir = os.environ.get("DBT_PROFILES_DIR")
-        if env_dir:
-            profiles_dir = Path(env_dir)
-        elif (project_dir / "profiles.yml").exists():
-            profiles_dir = project_dir
-        else:
-            profiles_dir = Path.home() / ".dbt"
-    profiles_dir = profiles_dir.resolve()
-
     work_root = Path(tempfile.mkdtemp(prefix="dbt2dataform-"))
     work = work_root / project_dir.name
     try:
@@ -314,6 +308,51 @@ def _parse(
         shutil.rmtree(work_root, ignore_errors=True)
         raise
     return manifest, supplied, work_root
+
+
+def _profiles_dir(project_dir: Path, profiles_dir: Path | None) -> Path:
+    """Where dbt looks for profiles.yml, in dbt's order."""
+    if profiles_dir is None:
+        env_dir = os.environ.get("DBT_PROFILES_DIR")
+        if env_dir:
+            profiles_dir = Path(env_dir)
+        elif (project_dir / "profiles.yml").exists():
+            profiles_dir = project_dir
+        else:
+            profiles_dir = Path.home() / ".dbt"
+    return profiles_dir.resolve()
+
+
+# The parts of a profile output that dbt exposes as `target`, never credentials.
+_TARGET_KEYS = ("schema", "dataset", "database", "project", "location", "threads", "type")
+
+
+def _read_target(profiles_dir: Path, profile: str | None, target: str | None) -> dict:
+    """dbt's `target` for the profile and target the project is parsed with.
+
+    Values that are Jinja (env_var() and the like) are left out rather than
+    guessed; the converter falls back to what the manifest shows.
+    """
+    path = profiles_dir / "profiles.yml"
+    try:
+        profiles = yaml.safe_load(path.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {"name": target} if target else {}
+    entry = profiles.get(profile) if profile else None
+    if not isinstance(entry, dict):
+        return {"name": target} if target else {}
+    name = target or entry.get("target")
+    output = (entry.get("outputs") or {}).get(name) or {}
+    values = {
+        k: v
+        for k, v in output.items()
+        if k in _TARGET_KEYS and isinstance(v, (str, int)) and "{{" not in str(v)
+    }
+    # dbt-bigquery answers to both names.
+    for a, b in (("schema", "dataset"), ("database", "project")):
+        if a in values or b in values:
+            values[a] = values[b] = values.get(a, values.get(b))
+    return {"name": name, "profile_name": profile, **values} if name else values
 
 
 def _absolutise_local_packages(work: Path, original: Path) -> None:

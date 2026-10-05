@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--default-project", help="GCP project for workflow_settings.yaml")
     parser.add_argument(
-        "--default-location", help=f"BigQuery location (default: {DEFAULT_LOCATION})"
+        "--default-location", help=f"BigQuery location (default: the profile's, else {DEFAULT_LOCATION})"
     )
     parser.add_argument(
         "--core-version", help=f"dataformCoreVersion to pin (default: {DEFAULT_CORE_VERSION})"
@@ -55,7 +55,9 @@ def main(argv: list[str] | None = None) -> int:
         "--no-contracts", action="store_true", help="skip assertions that port dbt model contracts"
     )
     parser.add_argument(
-        "--force", action="store_true", help="write into a non-empty directory not made by dbt2dataform"
+        "--force",
+        action="store_true",
+        help="write into a non-empty directory not made by dbt2dataform (existing files are never overwritten)",
     )
     args = parser.parse_args(argv)
 
@@ -96,9 +98,7 @@ def main(argv: list[str] | None = None) -> int:
             project,
             Options(
                 default_project=args.default_project or settings.get("default_project"),
-                default_location=args.default_location
-                or settings.get("default_location")
-                or DEFAULT_LOCATION,
+                default_location=args.default_location or settings.get("default_location"),
                 core_version=args.core_version or settings.get("core_version") or DEFAULT_CORE_VERSION,
                 contracts=not args.no_contracts and settings.get("contracts", True),
                 var_overrides=variables,

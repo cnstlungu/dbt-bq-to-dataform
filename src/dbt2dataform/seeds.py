@@ -12,6 +12,7 @@ when dbt is importable here, and the same rules written out otherwise.
 from __future__ import annotations
 
 import csv
+import io
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,8 +24,11 @@ _DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 _ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$")
 _NULLS = ("", "null")
 
-# Rough BigQuery ceiling is 1 MB of unresolved SQL; stay well under it.
+# Rough BigQuery ceiling is 1 MB of unresolved SQL; stay well under it. It
+# applies to the generated SQL, not to the CSV.
 INLINE_MAX_BYTES = 400_000
+# Columns wider than this are not padded into aligned columns.
+_PAD_MAX = 40
 
 
 @dataclass
@@ -39,7 +43,8 @@ class SeedTable:
 
 def read_seed(path: Path, column_types: dict[str, str], delimiter: str = ",") -> SeedTable:
     text = path.read_text(encoding="utf-8-sig")
-    reader = csv.reader(text.splitlines(), delimiter=delimiter)
+    # Not splitlines(): a quoted value may hold newlines of its own.
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     header = next(reader)
     rows = [r for r in reader if r]
     declared = {k.lower(): v for k, v in (column_types or {}).items()}
@@ -140,7 +145,9 @@ def inline_sql(seed: SeedTable) -> str:
     lines = []
     for n, cells in enumerate(rendered):
         padded = " ".join(
-            (c + ",").ljust(widths[i] + 1) if i < len(cells) - 1 else c for i, c in enumerate(cells)
+            (c + ",").ljust(widths[i] + 1) if i < len(cells) - 1 and widths[i] <= _PAD_MAX
+            else (c + "," if i < len(cells) - 1 else c)
+            for i, c in enumerate(cells)
         )
         comma = "," if n < len(rendered) - 1 else ""
         lines.append(f"  ({padded}){comma}")
@@ -148,15 +155,16 @@ def inline_sql(seed: SeedTable) -> str:
     return f"SELECT *\nFROM UNNEST(ARRAY<STRUCT<{struct}>>[\n{body}\n])\n"
 
 
-def load_data_sql(seed: SeedTable, uri_js: str) -> str:
+def load_data_sql(seed: SeedTable, uri_js: str, delimiter: str = ",") -> str:
     schema = ",\n  ".join(f"{_ident(c)} {t}" for c, t in zip(seed.columns, seed.types))
+    options = ["format = 'CSV'", "skip_leading_rows = 1", "allow_quoted_newlines = TRUE"]
+    if delimiter != ",":
+        escaped = delimiter.replace("\\", "\\\\").replace("'", "\\'").replace("\t", "\\t")
+        options.append(f"field_delimiter = '{escaped}'")
+    options.append(f"uris = ['{uri_js}']")
     return (
         "LOAD DATA OVERWRITE ${self()} (\n"
         f"  {schema}\n"
         ")\n"
-        "FROM FILES (\n"
-        "  format = 'CSV',\n"
-        "  skip_leading_rows = 1,\n"
-        f"  uris = ['{uri_js}']\n"
-        ")\n"
+        "FROM FILES (\n" + ",\n".join(f"  {o}" for o in options) + "\n)\n"
     )
