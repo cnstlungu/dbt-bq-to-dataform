@@ -198,8 +198,9 @@ included:
 | [tuva-health/tuva](https://github.com/tuva-health/tuva) `integration_tests` | 528 of 571 | 43: column and relation introspection (35), `union_relations` (7), `invocation_id` (1) |
 | [fivetran/dbt_stripe](https://github.com/fivetran/dbt_stripe) `integration_tests` | 14 of 65 | 51: warehouse introspection, mostly Fivetran's `fill_staging_columns` and `union_connections` (48), plus `dbt_utils` macros that query (3) |
 
-[`examples/jaffle_shop`](examples/jaffle_shop) is jaffle-shop's conversion.
-CI checks that it is current.
+CI converts and compiles jaffle-shop, at a pinned commit, on every run. Its
+converted files are not committed: jaffle-shop has no licence, so its code
+cannot be redistributed.
 
 ## Settings file and overrides
 
@@ -268,11 +269,26 @@ The tests do two things:
 - **Fixture.** They convert the edge fixture
   ([`tests/fixtures/edge_project`](tests/fixtures/edge_project), with a local
   package) and compile the result with the Dataform CLI through `npx`.
-- **Golden example.** They do the same for jaffle-shop. It is read from
-  `../jaffle-shop`, or from `DBT2DATAFORM_EXAMPLE`, and skipped when missing.
-  CI checks it out at a pinned commit and sets
+- **jaffle-shop.** They do the same for dbt-labs/jaffle-shop. It is read
+  from `../jaffle-shop`, or from `DBT2DATAFORM_EXAMPLE`, and skipped when
+  missing. CI checks it out at a pinned commit and sets
   `DBT2DATAFORM_REQUIRE_EXAMPLE=1`.
 
 Set `DBT2DATAFORM_SKIP_COMPILE=1` to skip compiling.
-`test_committed_example_is_current` fails when the converter's output
-changes; its docstring has the command that regenerates the example.
+
+## License and trademarks
+
+dbt2dataform is released under the [MIT License](LICENSE). The converter is
+provided as is, without warranty; review a converted project before you rely
+on it.
+
+- **Your output is yours.** A converted project is a translation of your dbt
+  project, under whatever terms that project has. The one file the converter
+  adds from its own code, `includes/dbt2dataform.js`, is MIT-0 (MIT No
+  Attribution), so it asks nothing of you.
+- **dbt behaviour.** Parts of the converter reimplement dbt-core and
+  dbt-bigquery behaviour (Apache License 2.0). [NOTICE](NOTICE) credits them.
+  No dbt code ships with dbt2dataform; it uses the dbt you install.
+- **Trademarks.** dbt is a trademark of dbt Labs, Inc. Dataform and BigQuery
+  are trademarks of Google LLC. This is an independent project, not
+  affiliated with or endorsed by either.

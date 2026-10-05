@@ -7,7 +7,7 @@ authors = [
     { name = "Constantin Lungu", email = "lungupconstantin@gmail.com" }
 ]
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 keywords = ["dbt", "dataform", "bigquery", "migration"]
 classifiers = [
     "Development Status :: 3 - Alpha",

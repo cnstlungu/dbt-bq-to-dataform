@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT-0
+// Written into this project by dbt2dataform (https://github.com/cnstlungu/dbt2dataform).
+// Use, modify and redistribute it freely; no attribution is required.
+
 /**
  * Helpers for constructs dbt2dataform ported from dbt.
  */
