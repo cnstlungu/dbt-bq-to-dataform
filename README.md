@@ -55,8 +55,11 @@ cd out/dataform_project && npx @dataform/cli@3.0.71 compile
 ```
 
 Running the tool again into the same directory replaces only the files the
-previous run wrote. It records them in `.dbt2dataform.json`, and keeps a
-`.gitignore` that was already there.
+previous run wrote. It records them in `.dbt2dataform.json`. It never
+overwrites a file it did not write, even with `--force`, which only allows a
+first run into a non-empty directory. If a generated file would land on one,
+nothing is written and the error names the file. A `.gitignore` that was
+already there is kept.
 
 ## What becomes what
 
@@ -82,10 +85,10 @@ previous run wrote. It records them in `.dbt2dataform.json`, and keeps a
 | every other generic test, including custom and package ones | an assertion file holding the SQL of the test's own macro |
 | tests with `where`, `severity`, `error_if` / `warn_if` / `fail_calc` / `limit` | an assertion file; non-default thresholds become a count that returns a row exactly when dbt would fail |
 | singular tests | assertion files |
-| model contracts | an assertion that checks `INFORMATION_SCHEMA.COLUMNS`, plus `PRIMARY KEY … NOT ENFORCED` |
+| model contracts | an assertion that checks `INFORMATION_SCHEMA.COLUMNS`, plus `PRIMARY KEY … NOT ENFORCED`; `not_null` constraints become `nonNull` assertions, since Dataform cannot declare NOT NULL |
 | source freshness (`error_after`) | an assertion tagged `source_freshness`, on `loaded_at_field` or, without one, the table's last-modified time as dbt-bigquery reads it |
 | sources | `declaration`s; dbt-external-tables sources (`external:`) become `CREATE OR REPLACE EXTERNAL TABLE` operations |
-| seeds | a table built from an inline typed array, typed as dbt-bigquery would load it; large seeds become `LOAD DATA` from GCS |
+| seeds | a table built from an inline typed array, typed as dbt-bigquery would load it. A seed whose SQL would be too long becomes `LOAD DATA` from GCS (with its delimiter), and its tests become assertion files |
 | snapshots | a `declaration` of the table dbt's snapshot maintains (manual item) |
 | descriptions, column descriptions, `policy_tags`, tags | `description`, `columns` (with `bigqueryPolicyTags`), `tags` |
 
@@ -158,16 +161,22 @@ These are reported, not converted:
 
 ### Evaluated once, at conversion time
 
-- **`target.*`.** `target.type` is always `bigquery`, so it's exact.
-  Anything else read from `target` is fixed to the parse target, with a
-  warning.
+- **`target.*`.** These are read from the profile and target the project is
+  parsed with (`--profile`, `--target`). Without a profile, they come from the
+  default dataset and project the manifest shows. `target.type` is always
+  `bigquery`, so it's exact. Anything else is fixed to that target, with a
+  warning. `defaultLocation` also comes from the profile unless
+  `--default-location` is given.
 - **Vars.** Scalar vars become Dataform vars. Lists, mappings and booleans
   are inlined, because Dataform vars are strings. A var whose value is Jinja
   is rendered once. `env_var()` becomes a Dataform var with the default as
   its value.
-- **`run_started_at`.** Printed as is, it becomes the time Dataform compiles
-  the project. Anything computed from it, such as `.strftime()` or
-  arithmetic, is fixed at conversion. `invocation_id` disables the model.
+- **`run_started_at`.** Printed as is, or converted to UTC, it becomes the
+  time Dataform compiles the project. Anything computed from it, such as
+  arithmetic, `.replace()`, `.strftime()` or another time zone, would be a
+  value fixed at conversion that looks current. So it disables the model
+  instead, with a pointer to compute it in SQL from `CURRENT_TIMESTAMP()`.
+  `invocation_id` disables the model too.
 - **Schema and database names** come from the parse target. They include
   whatever a custom `generate_schema_name` returned for that target.
 

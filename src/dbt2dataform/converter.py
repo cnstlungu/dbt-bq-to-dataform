@@ -69,7 +69,7 @@ _INLINE_TESTS = {
 @dataclass
 class Options:
     default_project: str | None = None
-    default_location: str = DEFAULT_LOCATION
+    default_location: str | None = None  # None: the profile's, else US
     core_version: str = DEFAULT_CORE_VERSION
     contracts: bool = True
     var_overrides: dict[str, str] = field(default_factory=dict)
@@ -98,7 +98,9 @@ class Converter:
         self.options = options
         self.report = Report(project_name=project.name, dbt_version=project.dbt_version)
         self.registry = TokenRegistry()
-        self.renderer = Renderer(project, self.registry, self.report, options.target_name)
+        self.default_schema = self._default_schema()
+        self.default_database = self._default_database()
+        self.renderer = Renderer(project, self.registry, self.report, self._target())
         self.files: dict[str, str] = {}
         self.targets: dict[str, Target] = {}
         self.inline_assertions: dict[str, dict[str, list]] = defaultdict(
@@ -109,8 +111,15 @@ class Converter:
         # unique_id -> why it was written disabled or not converted
         self.failed: dict[str, str] = {}
         self.converted: set[str] = set()
-        self.default_schema = self._default_schema()
-        self.default_database = self._default_database()
+
+    def _target(self) -> dict:
+        """dbt's `target`, from the profile, else from what the manifest shows."""
+        target = {"threads": 1, **self.project.target}
+        target["name"] = self.options.target_name or target.get("name") or "default"
+        for a, b, fallback in (("schema", "dataset", self.default_schema), ("database", "project", self.default_database)):
+            value = target.get(a) or target.get(b) or fallback
+            target[a] = target[b] = value
+        return target
 
     # -- driver -----------------------------------------------------------------
 
@@ -130,7 +139,9 @@ class Converter:
         self._plan_targets()
         self._convert_sources()
         self._declare_left_out()
+        self._read_seeds()
         self._collect_tests()
+        self._collect_constraints()
         self._convert_seeds()
         self._convert_models()
         self._convert_tests()
@@ -218,6 +229,7 @@ class Converter:
                 database=self._database_config(s),
             )
         self._name_counts = Counter(t.name for t in self.targets.values())
+        self._schema_name_counts = Counter((t.schema, t.name) for t in self.targets.values())
 
     def _left_out_dependencies(self) -> list[str]:
         """Package nodes and sources outside the conversion that converted nodes use."""
@@ -273,7 +285,11 @@ class Converter:
             return f"ref({js_string(target.name)})"
         schema = target.schema_config if target.schema_config is not None else JS("dataform.projectConfig.defaultSchema")
         schema_js = str(schema) if isinstance(schema, JS) else js_string(schema)
-        return f"ref({schema_js}, {js_string(target.name)})"
+        if self._schema_name_counts[(target.schema, target.name)] == 1:
+            return f"ref({schema_js}, {js_string(target.name)})"
+        # The same dataset and table name in two projects: name the project too.
+        database_js = js_string(target.database) if target.database else "dataform.projectConfig.defaultDatabase"
+        return f"ref({{database: {database_js}, schema: {schema_js}, name: {js_string(target.name)}}})"
 
     def _to_js(self, rep) -> str:
         if rep.kind == "ref":
@@ -289,15 +305,19 @@ class Converter:
     def _finish(self, text: str) -> str:
         return replace_tokens(text, self.registry.get, self._to_js)
 
+    def _protect(self, text: str) -> str:
+        """A literal `${` in SQL, which SQLX would read as JavaScript, as `${"${"}`."""
+        return text.replace("${", self.registry.token("js", '"${"')) if "${" in text else text
+
     # -- rendering --------------------------------------------------------------
 
     def _sql(self, raw: str, node: dict) -> str:
         """Render one piece of dbt SQL, both incremental branches if it has them."""
         full = self.renderer.render(raw, node, incremental=False)
-        text = tidy_sql(full.text)
+        text = self._protect(tidy_sql(full.text))
         if full.used_is_incremental and node.get("config", {}).get("materialized") == "incremental":
             inc = self.renderer.render(raw, node, incremental=True)
-            text = merge_incremental(text, tidy_sql(inc.text))
+            text = merge_incremental(text, self._protect(tidy_sql(inc.text)))
         return self._finish(text)
 
     def _hooks(self, node: dict) -> tuple[list[str], list[str]]:
@@ -399,7 +419,8 @@ class Converter:
         ref = self._ref_js(uid)
         threshold = f"TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {int(error_after['count'])} {period})"
         if loaded_at:
-            where = f"\nWHERE {freshness['filter']}" if freshness.get("filter") else ""
+            loaded_at = self._protect(loaded_at)
+            where = f"\nWHERE {self._protect(freshness['filter'])}" if freshness.get("filter") else ""
             body = (
                 f"SELECT MAX(CAST({loaded_at} AS TIMESTAMP)) AS max_loaded_at\n"
                 f"FROM ${{{ref}}}{where}\n"
@@ -426,6 +447,19 @@ class Converter:
 
     # -- seeds ------------------------------------------------------------------
 
+    def _read_seeds(self) -> None:
+        """Read every seed first: whether it inlines decides where its tests go."""
+        # unique_id -> (seed, its inline SQL, or None when it is loaded from GCS)
+        self._seeds: dict[str, tuple[seedlib.SeedTable, str | None]] = {}
+        for n in self._in_scope("seed"):
+            csv_path = self.project.file_of(n)
+            if csv_path is None or not csv_path.exists():
+                continue
+            cfg_in = n["config"]
+            seed = seedlib.read_seed(csv_path, cfg_in.get("column_types") or {}, cfg_in.get("delimiter") or ",")
+            sql = self._protect(seedlib.inline_sql(seed))
+            self._seeds[n["unique_id"]] = (seed, sql if len(sql) <= seedlib.INLINE_MAX_BYTES else None)
+
     def _convert_seeds(self) -> None:
         for n in self._in_scope("seed"):
             uid = n["unique_id"]
@@ -433,12 +467,12 @@ class Converter:
             csv_path = self.project.file_of(n)
             rel = self._relative(n, "seed")
             path = f"{self._base(n)}/seeds/{rel.with_suffix('.sqlx')}"
-            if csv_path is None or not csv_path.exists():
+            if uid not in self._seeds:
                 self._fail(uid, "the seed's CSV file was not found next to the manifest")
                 self.report.manual(uid, "seed not converted: its CSV file was not found.")
                 continue
             cfg_in = n["config"]
-            seed = seedlib.read_seed(csv_path, cfg_in.get("column_types") or {}, cfg_in.get("delimiter") or ",")
+            seed, inline = self._seeds[uid]
             if not seed.inferred_by_dbt:
                 self.report.info(
                     uid,
@@ -461,16 +495,19 @@ class Converter:
                 "columns": self._columns(n),
                 "assertions": self._assertions_for(uid),
             }
-            if seed.size_bytes <= seedlib.INLINE_MAX_BYTES:
-                body = seedlib.inline_sql(seed)
+            if inline is not None:
+                body = inline
                 note = f"{len(seed.rows)} rows inlined"
             else:
                 var = "seeds_gcs_path"
                 self.report.settings_vars.setdefault(var, ("seed files", "gs://CHANGE-ME/seeds"))
                 self.files[f"seeds/{rel}"] = csv_path.read_text()
-                body = seedlib.load_data_sql(seed, f"${{dataform.projectConfig.vars.{var}}}/{rel.as_posix()}")
+                uri = f"${{dataform.projectConfig.vars.{var}}}/{rel.as_posix()}"
+                body = seedlib.load_data_sql(seed, uri, cfg_in.get("delimiter") or ",")
                 cfg["type"] = "operations"
                 cfg["hasOutput"] = True
+                # Operations hold no built-in assertions; _collect_tests sent
+                # this seed's tests to assertion files instead.
                 cfg.pop("assertions")
                 self.report.manual(uid, f"seed is too large to inline; upload seeds/{rel} to the `{var}` GCS folder.")
                 note = "LOAD DATA from GCS"
@@ -762,17 +799,45 @@ class Converter:
             inline = (
                 attached is not None
                 and attached.split(".")[0] in ("model", "seed")
+                and (not attached.startswith("seed.") or (self._seeds.get(attached) or (None, None))[1] is not None)
                 and key in _INLINE_TESTS
                 and self._inline_safe(t)
                 # Dataform's uniqueKeys counts repeated NULLs as duplicates; dbt's
                 # unique test ignores NULLs. Only the same when NULL is impossible.
                 and (key != (None, "unique") or (attached, self._col(t)) in not_null)
             )
-            if inline and self._inline_test(t, attached):
+            kwargs = self._inline_kwargs(t) if inline else None
+            if kwargs is not None and self._inline_test(t, attached, kwargs):
                 self._test_stats["built-in assertions in the table's config"] += 1
                 self._inline_tests.add(uid)
                 continue
             self._standalone.append(t)
+
+    def _collect_constraints(self) -> None:
+        """not_null constraints of enforced contracts, as built-in assertions.
+
+        dbt-bigquery declares NOT NULL in the table's DDL. Dataform creates
+        tables from a query and cannot, so the constraint becomes a check.
+        """
+        for n in self._in_scope("model"):
+            if not (n.get("contract") or {}).get("enforced"):
+                continue
+            columns = [
+                name
+                for name, col in (n.get("columns") or {}).items()
+                for con in col.get("constraints") or []
+                if con.get("type") == "not_null"
+            ]
+            columns += [
+                c for con in n.get("constraints") or [] if con.get("type") == "not_null" for c in con.get("columns") or []
+            ]
+            if columns:
+                self.inline_assertions[n["unique_id"]]["nonNull"].extend(columns)
+                self.report.info(
+                    n["unique_id"],
+                    "not_null constraints became nonNull assertions: Dataform creates tables "
+                    "from a query, so it cannot declare NOT NULL columns.",
+                )
 
     def _inline_safe(self, t: dict) -> bool:
         c = t.get("config") or {}
@@ -791,18 +856,27 @@ class Converter:
             col = col[1:-1]
         return col
 
-    def _inline_test(self, t: dict, target: str) -> bool:
-        tm = t["test_metadata"]
-        name, ns, kw = tm["name"], tm.get("namespace"), tm["kwargs"]
+    def _inline_kwargs(self, t: dict) -> dict | None:
+        """A test's arguments as dbt renders them, or None when they cannot be
+        written into a config string because they render to a Dataform var or ref."""
+        try:
+            kwargs = self.renderer.test_kwargs(t)
+        except Unsupported:
+            return None
+        values = {k: v for k, v in kwargs.items() if k not in ("model", "column_name")}
+        return None if _dynamic(values) else kwargs
+
+    def _inline_test(self, t: dict, target: str, kw: dict) -> bool:
+        name = t["test_metadata"]["name"]
         bucket = self.inline_assertions[target]
         col = self._col(t)
         if name == "unique" and col:
             bucket["uniqueKeys"].append([col])
         elif name == "not_null" and col:
             bucket["nonNull"].append(col)
-        elif name == "accepted_values" and col:
+        elif name == "accepted_values" and col and isinstance(kw.get("values"), (list, tuple)):
             bucket["rowConditions"].append(_accepted_values(col, kw))
-        elif name == "unique_combination_of_columns":
+        elif name == "unique_combination_of_columns" and isinstance(kw.get("combination_of_columns"), (list, tuple)):
             bucket["uniqueKeys"].append(list(kw["combination_of_columns"]))
         elif name == "expression_is_true" and not kw.get("condition"):
             bucket["rowConditions"].append(kw["expression"] if not col else f"{col} {kw['expression']}")
@@ -825,12 +899,12 @@ class Converter:
             uid = t["unique_id"]
             try:
                 if t.get("test_metadata"):
-                    sql = tidy_sql(self.renderer.render_test(t).text)
+                    sql = self._protect(tidy_sql(self.renderer.render_test(t).text))
                     path = f"{self._base(t)}/assertions/generic/{t['name']}.sqlx"
                     ns = t["test_metadata"].get("namespace")
                     note = f"generic test `{(ns + '.') if ns else ''}{t['test_metadata']['name']}`"
                 else:
-                    sql = tidy_sql(self.renderer.render(t["raw_code"], t).text)
+                    sql = self._protect(tidy_sql(self.renderer.render(t["raw_code"], t).text))
                     rel = self._relative(t, "test")
                     path = f"{self._base(t)}/assertions/{rel.with_suffix('.sqlx')}"
                     note = "singular test"
@@ -1056,7 +1130,7 @@ class Converter:
             self.report.manual("workflow_settings.yaml", "set defaultProject to your GCP project.")
         lines = [
             f"defaultProject: {project}",
-            f"defaultLocation: {self.options.default_location}",
+            f"defaultLocation: {self.options.default_location or self.project.target.get('location') or DEFAULT_LOCATION}",
             f"defaultDataset: {self.default_schema}",
             f"defaultAssertionDataset: {self.default_schema}_assertions",
             f"dataformCoreVersion: {self.options.core_version}",
@@ -1095,6 +1169,17 @@ def normalize_type(data_type: str) -> str:
     return re.sub(r"\b[A-Z]+\b", lambda m: _TYPE_ALIASES.get(m.group(0), m.group(0)), t)
 
 
+def _dynamic(value) -> bool:
+    """Whether a rendered value carries a token or a Dataform var."""
+    if isinstance(value, dict):
+        return any(_dynamic(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_dynamic(v) for v in value)
+    if getattr(value, "df_var", None) or getattr(value, "df_js", None):
+        return True
+    return isinstance(value, str) and "__df_tok_" in value
+
+
 def _norm(expr: str) -> str:
     return re.sub(r"\s+", "", str(expr)).lower()
 
@@ -1127,12 +1212,23 @@ def write_output(files: dict[str, str], out_dir: Path, force: bool) -> None:
     previous: list[str] = []
     if state.exists():
         previous = json.loads(state.read_text()).get("files", [])
-        for rel in previous:
-            (out_dir / rel).unlink(missing_ok=True)
     elif any(out_dir.iterdir()) and not force:
         raise FileExistsError(
             f"{out_dir} is not empty and was not written by dbt2dataform; pass --force to write into it"
         )
+    # Checked before anything is touched: a file the previous run did not
+    # write is someone else's, and --force never overwrites it.
+    owned = set(previous)
+    clashes = sorted(
+        rel for rel in files if rel not in owned and rel not in _OPTIONAL_FILES and (out_dir / rel).exists()
+    )
+    if clashes:
+        raise FileExistsError(
+            "these files exist and were not written by dbt2dataform, so they were left "
+            "alone and nothing was written; move them out of the way first: " + ", ".join(clashes)
+        )
+    for rel in previous:
+        (out_dir / rel).unlink(missing_ok=True)
     written = []
     for rel, content in files.items():
         path = out_dir / rel

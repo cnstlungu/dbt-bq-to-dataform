@@ -100,7 +100,13 @@ def _wrap_var(dataform_name: str, value):
 
 
 class _RunStartedAt(datetime.datetime):
-    """run_started_at. Printed, it becomes the time Dataform compiles the project."""
+    """run_started_at. Printed, it becomes the time Dataform compiles the project.
+
+    Only the value itself has that equivalent. Anything computed from it
+    (arithmetic, replace(), strftime(), another time zone) would be fixed at
+    conversion time, a stale value that looks current, so using it flags the
+    node instead.
+    """
 
     df_js = "new Date().toISOString()"
 
@@ -109,10 +115,37 @@ class _RunStartedAt(datetime.datetime):
         return cls(*value.timetuple()[:6], value.microsecond, tzinfo=value.tzinfo)
 
     def astimezone(self, tz=None):
-        return _RunStartedAt.of(super().astimezone(tz))
+        moved = datetime.datetime.astimezone(self, tz)
+        if moved.utcoffset() == datetime.timedelta(0):
+            return _RunStartedAt.of(moved)  # the same instant, still printed in UTC
+        return _derived("astimezone() to a zone other than UTC")
 
-    def replace(self, *args, **kwargs):
-        return _RunStartedAt.of(super().replace(*args, **kwargs))
+    def replace(self, *_args, **_kwargs):
+        return _derived(".replace()")
+
+    def strftime(self, _fmt):
+        return _derived(".strftime()")
+
+    def isoformat(self, *_args, **_kwargs):
+        return _derived(".isoformat()")
+
+    def date(self):
+        return _derived(".date()")
+
+    def __add__(self, _other):
+        return _derived("arithmetic")
+
+    __radd__ = __add__
+
+    def __sub__(self, _other):
+        return _derived("arithmetic")
+
+
+def _derived(what: str) -> "_Unavailable":
+    return _Unavailable(
+        f"a value computed from run_started_at ({what}) would be fixed at conversion "
+        "time; compute it in SQL from CURRENT_TIMESTAMP() instead"
+    )
 
 
 class _Unavailable:
@@ -465,7 +498,7 @@ _STAND_IN_PACKAGES = {"dbt", "dbt_utils"}
 
 
 class Renderer:
-    def __init__(self, project: DbtProject, registry: TokenRegistry, report: Report, target_name: str | None = None):
+    def __init__(self, project: DbtProject, registry: TokenRegistry, report: Report, target: dict | None = None):
         self.project = project
         self.registry = registry
         self.report = report
@@ -484,7 +517,8 @@ class Renderer:
             for d in project.project_yml.get("dispatch") or []
             if isinstance(d, dict) and d.get("macro_namespace")
         }
-        self.target_name = target_name or "default"
+        # dbt's `target`: the profile output the project was parsed with.
+        self.target = dict(target or {})
         self.run_started_at = _RunStartedAt.of(datetime.datetime.now(datetime.timezone.utc))
         self._templates: dict[str, jinja2.Template] = {}
         self._static = self._static_members()
@@ -500,18 +534,22 @@ class Renderer:
 
     def render_test(self, node: dict) -> Rendered:
         """A generic test's SQL, by calling its test macro as dbt does."""
-        state = {"used_is_incremental": False}
-        scope = self._scope(node, False, state, {})
-        kwargs = _deep_map(lambda v, path: self._test_kwarg(v, path, scope), node["test_metadata"]["kwargs"])
-        scope.members["_dbt_generic_test_kwargs"] = kwargs
+        scope = self._scope(node, False, {"used_is_incremental": False}, {})
+        scope.members["_dbt_generic_test_kwargs"] = self._test_kwargs(node, scope)
         return Rendered(self._render_in(scope, node["raw_code"]), False)
+
+    def test_kwargs(self, node: dict) -> dict:
+        """A generic test's arguments, rendered as dbt renders them."""
+        return self._test_kwargs(node, self._scope(node, False, {"used_is_incremental": False}, {}))
+
+    def _test_kwargs(self, node: dict, scope: "_Scope") -> dict:
+        return _deep_map(lambda v, path: self._test_kwarg(v, path, scope), node["test_metadata"]["kwargs"])
 
     def on_member(self, name: str, scope: _Scope) -> None:
         if name == "run_started_at":
             self.report.warning(
                 scope.members["model"].get("unique_id", "?"),
-                "run_started_at, printed as is, became the time Dataform compiles the "
-                "project; anything computed from it was fixed at conversion time.",
+                "run_started_at became the time Dataform compiles the project.",
             )
 
     # -- rendering --------------------------------------------------------------
@@ -535,7 +573,7 @@ class Renderer:
     def _native(self, text: str, scope: _Scope):
         """Render like dbt's native renderer: a lone expression keeps its type."""
         single = _SINGLE_EXPRESSION.match(text)
-        if single:
+        if single and not any(mark in single.group(1) for mark in ("{{", "}}", "{%", "%}")):
             # One list per scope: the context caches what a name resolved to.
             holder: list = scope.members.setdefault("__dbt2dataform_native__", [])
             holder.clear()
@@ -749,19 +787,7 @@ class Renderer:
             model=node,
             database=node.get("database"),
             schema=node.get("schema"),
-            target=_Recorder(
-                "target",
-                {
-                    "name": self.target_name,
-                    "type": "bigquery",
-                    "schema": node.get("schema"),
-                    "dataset": node.get("schema"),
-                    "database": node.get("database"),
-                    "project": node.get("database"),
-                    "threads": 1,
-                },
-                on_read,
-            ),
+            target=_Recorder("target", {**self.target, "type": "bigquery"}, on_read),
         )
         members.update(extra or {})
         scope = _Scope(self, members, package)
