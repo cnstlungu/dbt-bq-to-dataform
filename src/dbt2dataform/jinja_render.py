@@ -707,14 +707,12 @@ class Renderer:
                         "conversion time; Dataform vars are strings only.",
                     )
                 return value
-            df_name = _var_name(name)
-            self.settings_vars.setdefault(df_name, (f"dbt var `{name}`", str(value)))
+            df_name = self._dataform_var(_var_name(name), str(value), package, f"dbt var `{name}`", name)
             return _wrap_var(df_name, value)
 
         def env_var(name, default=None):
-            df_name = _var_name(name).lower()
             shown = default if default is not None else f"CHANGE_ME_{name}"
-            self.settings_vars.setdefault(df_name, (f"env var `{name}`", str(shown)))
+            df_name = self._dataform_var(_var_name(name).lower(), str(shown), package, f"env var `{name}`")
             self.report.warning(
                 subject,
                 f"env_var('{name}') became Dataform var `{df_name}`; Dataform reads "
@@ -771,6 +769,34 @@ class Renderer:
         members["context"] = scope.context
         members["render"] = lambda text: self._render_in(scope, text)
         return scope
+
+    def _dataform_var(self, base: str, value: str, package: str, origin: str, dbt_var: str | None = None) -> str:
+        """The Dataform var that carries one value of a dbt var.
+
+        Dataform has one set of vars for the whole project, while dbt lets each
+        package see its own value. The root project's value keeps the plain
+        name; a package that sees a different value gets `<package>__<name>`.
+        """
+        root = self.project.name
+        candidates = []
+        root_value = self.project.vars_for(root).get(dbt_var, _MISSING) if dbt_var else _MISSING
+        if package == root or root_value is _MISSING or str(root_value) == value:
+            candidates.append(base)
+        qualified = f"{_var_name(package)}__{base}"
+        candidates += [qualified] + [f"{qualified}_{n}" for n in range(2, 100)]
+        for name in candidates:
+            existing = self.settings_vars.get(name)
+            if existing is None or existing[1] == value:
+                if existing is None:
+                    self.settings_vars[name] = (origin, value)
+                if name != base:
+                    self.report.info(
+                        f"var {dbt_var or base}",
+                        f"has a different value in package `{package}`, whose models read "
+                        f"it from Dataform var `{name}`.",
+                    )
+                return name
+        raise Unsupported(f"too many different values for var `{base}`")
 
     # -- lookups ----------------------------------------------------------------
 

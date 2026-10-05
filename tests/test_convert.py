@@ -109,11 +109,18 @@ def test_macros_resolve_by_dbts_rules(edge):
 
 
 def test_packages_are_converted_with_their_vars(edge):
-    _, files = edge
+    converter, files = edge
     pkg = files["definitions/packages/edge_pkg/pkg_model.sqlx"]
     assert 'schema: dataform.projectConfig.defaultSchema + "_pkg"' in pkg
-    assert "${dataform.projectConfig.vars.pkg_rate} AS rate" in pkg
-    assert 'pkg_rate: "5"' in files["workflow_settings.yaml"]  # root's scoped var beats the package's
+    assert 'FROM ${ref("pkg_model")}' in files["definitions/marts/uses_pkg_model.sqlx"]
+    # dbt gives the root project pkg_rate 1 and edge_pkg 5 (the root's scoped
+    # value beats the package's own 3). Dataform has one set of vars, so the
+    # package gets a var of its own.
+    assert "${dataform.projectConfig.vars.pkg_rate} AS rate" in files["definitions/marts/root_rate.sqlx"]
+    assert "${dataform.projectConfig.vars.edge_pkg__pkg_rate} AS rate" in pkg
+    settings = files["workflow_settings.yaml"]
+    assert 'pkg_rate: "1"' in settings and 'edge_pkg__pkg_rate: "5"' in settings
+    assert "edge_pkg__pkg_rate" in issues(converter, "info")["var pkg_rate"][0]
 
 
 def test_tests_keep_dbt_semantics(edge):
@@ -197,10 +204,18 @@ def test_edge_project_compiles(edge, tmp_path):
     assert {"fct_orders", "stg_orders", "people", "calendar", "pkg_model"} <= names
 
 
-def test_packages_can_be_left_out():
-    _, files = convert(EDGE, include_packages=False)
-    assert not any(p.startswith("definitions/packages/") for p in files)
+def test_packages_can_be_left_out(tmp_path):
+    converter, files = convert(EDGE, include_packages=False)
     assert "UPPER('quiet')" in files["definitions/marts/macro_tour.sqlx"]  # its macros still work
+    # Only what the project itself uses is declared, so its own models still convert.
+    assert [p for p in files if p.startswith("definitions/packages/")] == ["definitions/packages/edge_pkg/pkg_model.sqlx"]
+    declared = files["definitions/packages/edge_pkg/pkg_model.sqlx"]
+    assert 'type: "declaration"' in declared and 'name: "pkg_model"' in declared
+    assert 'schema: dataform.projectConfig.defaultSchema + "_pkg"' in declared
+    uses = files["definitions/marts/uses_pkg_model.sqlx"]
+    assert "disabled" not in uses and 'FROM ${ref("pkg_model")}' in uses
+    compiled = compile_dataform(files, tmp_path / "no_packages")
+    assert "uses_pkg_model" in {t["target"]["name"] for t in compiled["tables"]}
 
 
 def test_refuses_other_adapters(tmp_path):

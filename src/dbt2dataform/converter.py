@@ -129,6 +129,7 @@ class Converter:
             )
         self._plan_targets()
         self._convert_sources()
+        self._declare_left_out()
         self._collect_tests()
         self._convert_seeds()
         self._convert_models()
@@ -195,6 +196,19 @@ class Converter:
                     schema_config=n["schema"] if kind == "snapshot" else self._schema_config(n),
                     database=self._database_config(n),
                 )
+        # With --no-packages, the packages' nodes the project itself uses stay
+        # reachable as declarations of the tables dbt builds for them.
+        self._left_out = self._left_out_dependencies()
+        for uid in self._left_out:
+            n = self.project.nodes.get(uid)
+            if n is not None:
+                self.targets[uid] = Target(
+                    unique_id=uid,
+                    name=n.get("alias") or n["name"],
+                    schema=n["schema"],
+                    schema_config=n["schema"] if n["resource_type"] == "snapshot" else self._schema_config(n),
+                    database=self._database_config(n),
+                )
         for s in self.project.sources.values():
             self.targets[s["unique_id"]] = Target(
                 unique_id=s["unique_id"],
@@ -204,6 +218,49 @@ class Converter:
                 database=self._database_config(s),
             )
         self._name_counts = Counter(t.name for t in self.targets.values())
+
+    def _left_out_dependencies(self) -> list[str]:
+        """Package nodes and sources outside the conversion that converted nodes use."""
+        if self.options.include_packages:
+            return []
+        inside = lambda n: self.project.in_scope(n, False)  # noqa: E731
+        used = {
+            dep
+            for n in self.project.nodes.values()
+            if inside(n) and n["resource_type"] in ("model", "seed", "snapshot", "test")
+            for dep in n.get("depends_on", {}).get("nodes", [])
+        }
+        left_out = []
+        for dep in sorted(used):
+            node = self.project.nodes.get(dep) or self.project.sources.get(dep)
+            if node is not None and not inside(node) and node["resource_type"] in ("model", "seed", "snapshot", "source"):
+                left_out.append(dep)
+        return left_out
+
+    def _declare_left_out(self) -> None:
+        for uid in self._left_out:
+            node = self.project.nodes.get(uid) or self.project.sources[uid]
+            target = self.targets[uid]
+            kind = node["resource_type"]
+            if kind == "source":
+                path = f"{self._base(node)}/sources/{node['source_name']}/{target.name}.sqlx"
+            else:
+                folder = {"model": "", "seed": "seeds/", "snapshot": "snapshots/"}[kind]
+                rel = self._relative(node, kind)
+                path = f"{self._base(node)}/{folder}{rel.with_suffix('.sqlx')}"
+            cfg = {
+                "type": "declaration",
+                "schema": target.schema_config,
+                "name": target.name,
+                "database": target.database,
+                "description": node.get("description") or None,
+            }
+            self._emit(path, cfg, "", node, "declared: left out with --no-packages")
+            self.report.info(
+                uid,
+                "left out with --no-packages and declared, so the project's own models "
+                "that use it read the table dbt builds for it.",
+            )
 
     # -- JS for tokens ----------------------------------------------------------
 

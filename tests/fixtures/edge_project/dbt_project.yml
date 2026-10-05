@@ -9,6 +9,8 @@ profile: edge
 vars:
   min_amount: 10
   regions: ["EU", "US"]
+  # The root project and edge_pkg see different values of the same var.
+  pkg_rate: 1
   edge_pkg:
     pkg_rate: 5
 
