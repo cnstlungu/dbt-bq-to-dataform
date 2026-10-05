@@ -667,7 +667,17 @@ class Converter:
     def _collect_tests(self) -> None:
         self._standalone: list[dict] = []
         self._test_stats: Counter = Counter()
-        tests = self._in_scope("test")
+        # test unique_id -> the node it tests, for every test that is converted
+        self._tested: dict[str, str | None] = {}
+        self._inline_tests: set[str] = set()
+        # dbt keeps tests of disabled models in the manifest, disabled too.
+        self._disabled_tests = 0
+        tests = []
+        for t in self._in_scope("test"):
+            if (t.get("config") or {}).get("enabled") is False:
+                self._disabled_tests += 1
+            else:
+                tests.append(t)
         not_null = {
             (t.get("attached_node"), self._col(t))
             for t in tests
@@ -679,6 +689,7 @@ class Converter:
             uid = t["unique_id"]
             tm = t.get("test_metadata")
             if not tm:
+                self._tested[uid] = None
                 self._standalone.append(t)
                 continue
             attached = t.get("attached_node")
@@ -686,8 +697,10 @@ class Converter:
                 srcs = [d for d in t["depends_on"]["nodes"] if d.startswith("source.")]
                 attached = srcs[0] if srcs else None
             if attached is not None and attached not in self.targets:
-                self._test_stats["skipped: they test nodes disabled in dbt or left out of the conversion"] += 1
+                self._test_stats["left out with the nodes they test"] += 1
+                self.report.idle_test(uid, attached, "not converted: the node it tests was left out (`--no-packages`)")
                 continue
+            self._tested[uid] = attached
             key = (tm.get("namespace"), tm["name"])
             inline = (
                 attached is not None
@@ -700,6 +713,7 @@ class Converter:
             )
             if inline and self._inline_test(t, attached):
                 self._test_stats["built-in assertions in the table's config"] += 1
+                self._inline_tests.add(uid)
                 continue
             self._standalone.append(t)
 
@@ -766,6 +780,7 @@ class Converter:
                 body = self._finish(self._with_thresholds(sql, t))
             except Unsupported as exc:
                 self.report.manual(uid, f"test not converted: {exc}")
+                self.report.idle_test(uid, self._tested.get(uid), f"not converted: {exc}")
                 self._test_stats["not converted"] += 1
                 self._fail(uid, str(exc))
                 continue
@@ -778,10 +793,6 @@ class Converter:
             }
             self._emit(path, cfg, body, t, note)
             self.converted.add(uid)
-        total = sum(self._test_stats.values())
-        if total:
-            parts = ", ".join(f"{n} {what}" for what, n in sorted(self._test_stats.items()))
-            self.report.info("tests", f"{total} dbt tests became: {parts}.")
 
     def _with_thresholds(self, sql: str, t: dict) -> str:
         """dbt's failure thresholds around a test's failing rows.
@@ -821,14 +832,30 @@ class Converter:
         self.failed[uid] = why
 
     def _flag_broken_dependencies(self) -> None:
-        for uid in sorted(self.converted):
+        stranded = 0
+        for uid in sorted(self.converted | self._inline_tests):
             node = self.project.nodes.get(uid) or {}
-            if any(dep in self.failed for dep in node.get("depends_on", {}).get("nodes", [])):
+            broken = [d for d in node.get("depends_on", {}).get("nodes", []) if d in self.failed]
+            if uid in self._tested and (self._tested[uid] in self.failed or broken):
+                # A test of a model written disabled: inline, it is disabled
+                # with the model; as a file, it would read a stale table.
+                stranded += 1
+                tested = self._tested[uid] if self._tested[uid] in self.failed else broken[0]
+                self.report.idle_test(uid, tested, "the model it tests was written disabled; it runs once that model is ported")
+            elif broken:
                 self.report.warning(
                     uid,
                     "depends on a model listed under Needs manual work; until that is "
                     "ported it reads whatever the table already holds, or fails if there is none.",
                 )
+        total = sum(self._test_stats.values())
+        if total:
+            parts = ", ".join(f"{n} {what}" for what, n in sorted(self._test_stats.items()))
+            if stranded:
+                parts += f"; {stranded} of the converted ones test models written disabled"
+            idle = len(self.report.idle_tests)
+            tail = f" {idle} will not run as converted: see Tests that will not run." if idle else ""
+            self.report.info("tests", f"{total} enabled dbt tests became: {parts}.{tail}")
 
     def _note_unconverted(self) -> None:
         for n in self._in_scope("snapshot"):
@@ -865,7 +892,16 @@ class Converter:
                 continue
             self.report.skipped[label] += len(items)
             if key == "unit_tests":
-                self.report.manual("unit tests", f"{len(items)} dbt unit tests not converted; Dataform's `type: \"test\"` actions can hold them.")
+                for item in items:
+                    self.report.idle_test(
+                        item["unique_id"],
+                        (item.get("depends_on") or {}).get("nodes", [None])[0] if (item.get("depends_on") or {}).get("nodes") else None,
+                        "dbt unit test: not converted (a Dataform `type: \"test\"` action can hold it)",
+                    )
+                self.report.manual(
+                    "unit tests",
+                    f"{len(items)} dbt unit tests not converted; each is listed under Tests that will not run.",
+                )
             elif key == "functions":
                 names = ", ".join(sorted(f.get("name", "?") for f in items))
                 self.report.manual(
@@ -886,6 +922,8 @@ class Converter:
             for d in entries
             if self.project.in_scope(d, self.options.include_packages)
         )
+        disabled["test"] += self._disabled_tests
+        disabled = +disabled
         if disabled:
             parts = ", ".join(f"{n} {kind}s" for kind, n in sorted(disabled.items()))
             self.report.info("dbt", f"disabled in dbt, so not converted: {parts}.")

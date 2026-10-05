@@ -92,6 +92,11 @@ previous run wrote. It records them in `.dbt2dataform.json`, and keeps a
 ## Limitations
 
 Everything below is listed in the conversion report when a project uses it.
+The report also has a "Tests that will not run" table. It names every enabled
+dbt test and unit test the converted project will not run, the node each one
+tests, and why: not converted, testing a model that was written disabled, or
+left out with `--no-packages`. Tests dbt itself disables are counted, not
+listed.
 The only settings dropped without a note are those that change nothing in
 BigQuery: `meta`, `docs`, `quoting`, `persist_docs`, and the tags of sources
 (Dataform declarations take none).

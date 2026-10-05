@@ -38,6 +38,11 @@ class Report:
     mappings: list[Mapping] = field(default_factory=list)
     skipped: Counter = field(default_factory=Counter)
     settings_vars: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # (test, the node it tests, why it will not run as converted)
+    idle_tests: list[tuple[str, str, str]] = field(default_factory=list)
+
+    def idle_test(self, test: str, tested: str | None, why: str) -> None:
+        self.idle_tests.append((test, tested or "", why))
 
     def add(self, level: str, subject: str, message: str) -> None:
         assert level in LEVELS, level
@@ -97,11 +102,14 @@ class Report:
                 continue
             out.append(f"## {title}\n")
             for message, subjects in grouped.items():
-                shown = ", ".join(subjects[:_MAX_SUBJECTS])
-                if len(subjects) > _MAX_SUBJECTS:
+                # Notes are shortened; anything that needs action is listed in full.
+                shown = ", ".join(subjects if level != "info" else subjects[:_MAX_SUBJECTS])
+                if level == "info" and len(subjects) > _MAX_SUBJECTS:
                     shown += f" and {len(subjects) - _MAX_SUBJECTS} more"
                 out.append(f"- **{shown}**: {message}")
             out.append("")
+            if level == "warning":
+                out.extend(self._render_idle_tests())
 
         out.append("## File mapping\n")
         out.append("| dbt | Dataform | Type | Note |\n|---|---|---|---|")
@@ -111,6 +119,21 @@ class Report:
             )
         out.append("")
         return "\n".join(out)
+
+    def _render_idle_tests(self) -> list[str]:
+        if not self.idle_tests:
+            return []
+        out = [
+            "## Tests that will not run\n",
+            "Every enabled dbt test (and unit test) that the converted project will "
+            "not run as it stands. Tests dbt itself disables are only counted, under Notes.\n",
+            "| Test | Tests | Why |\n|---|---|---|",
+        ]
+        for test, tested, why in sorted(self.idle_tests, key=lambda t: (t[2], t[1], t[0])):
+            tested_cell = f"`{self.short(tested)}`" if tested else ""
+            out.append(f"| `{self.short(test)}` | {tested_cell} | {why} |")
+        out.append("")
+        return out
 
     def short(self, subject: str) -> str:
         """`model.my_project.dim_date` -> `dim_date`; a package's -> `pkg.dim_date`."""
