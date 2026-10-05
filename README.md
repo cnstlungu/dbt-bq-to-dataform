@@ -65,7 +65,7 @@ previous run wrote. It records them in `.dbt2dataform.json`, and keeps a
 | `table` / `view` / `incremental` model | `table` / `view` / `incremental` action |
 | `materialized_view` | `view` with `materialized: true` |
 | `ephemeral` model | `view` (warning) |
-| models, seeds, sources and tests of installed packages | the same, under `definitions/packages/<package>/` (`--no-packages` leaves them out) |
+| models, seeds, sources and tests of installed packages | the same, under `definitions/packages/<package>/`. `--no-packages` leaves them out, but declares the package tables the project's own models use, so those models still convert. |
 | `{{ ref() }}`, `{{ source() }}`, `{{ this }}` | `${ref()}`, `${self()}` |
 | `{% if is_incremental() %}…{% else %}…{% endif %}` | `${when(incremental(), …, …)}` around only the lines that differ |
 | any macro (project, package or dbt's), `adapter.dispatch` | rendered at conversion time, as dbt-bigquery would compile it |
@@ -75,7 +75,7 @@ previous run wrote. It records them in `.dbt2dataform.json`, and keeps a
 | `full_refresh: false` | `protected: true` |
 | custom `schema` with dbt's default `generate_schema_name` | `schema: dataform.projectConfig.defaultSchema + "_<custom>"` |
 | any other resolved schema (e.g. a custom `generate_schema_name`) | the dataset name, written literally |
-| scalar `var('x')` | `${dataform.projectConfig.vars.x}`, its value in `workflow_settings.yaml` |
+| scalar `var('x')` | `${dataform.projectConfig.vars.x}`, its value in `workflow_settings.yaml`. A package that sees a different value from the root project gets its own var, `<package>__x`. |
 | `env_var('X')` | Dataform var `x` (warning: Dataform does not read the environment) |
 | `pre_hook` / `post_hook` / `sql_header` | `pre_operations` / `post_operations` |
 | `not_null`, `accepted_values`, `dbt_utils.expression_is_true`, `dbt_utils.accepted_range`, `dbt_utils.unique_combination_of_columns`; `unique` on a column that is also `not_null` | built-in `assertions: {nonNull, rowConditions, uniqueKeys}` |
