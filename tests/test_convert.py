@@ -45,7 +45,9 @@ def convert(project_dir: Path, profiles_dir: Path | None = None, **options):
         project.close()
 
 
-def compile_dataform(files: dict[str, str], out: Path) -> dict:
+def compile_dataform(files: dict[str, str], out: Path, show_sql: bool = True) -> dict:
+    """Compile with the Dataform CLI. Dataform's error stacks quote the failing
+    line of SQL; show_sql=False reports only each error's file and message."""
     if os.environ.get("DBT_BQ_TO_DATAFORM_SKIP_COMPILE") or not shutil.which("npx"):
         pytest.skip("Dataform compile disabled or npx missing")
     write_output(files, out, force=False)
@@ -56,6 +58,15 @@ def compile_dataform(files: dict[str, str], out: Path) -> dict:
         text=True,
         timeout=300,
     )
+    if not show_sql:
+        try:
+            graph_errors = json.loads(proc.stdout).get("graphErrors") or {}
+        except ValueError:
+            graph_errors = {}
+        if proc.returncode != 0 or graph_errors:
+            errors = graph_errors.get("compilationErrors", [])
+            found = [f"{e.get('fileName')}: {e.get('message')}" for e in errors]
+            pytest.fail(f"Dataform compile failed (exit {proc.returncode}): {found}", pytrace=False)
     assert proc.returncode == 0, proc.stderr[-3000:]
     compiled = json.loads(proc.stdout)
     assert not compiled.get("graphErrors"), compiled["graphErrors"]
@@ -99,6 +110,7 @@ def test_macros_resolve_by_dbts_rules(edge):
     assert "UPPER('quiet') AS loud" in tour  # a package macro
     assert "CAST(2 * 100 AS INT64) AS own_namespace" in tour  # edge.cents()
     assert "'hello from edge' AS greeting" in tour  # dispatch search_order override
+    assert "'bigquery' AS variant" in tour  # dispatch prefers bigquery__ to default__
     assert "1 AS private_value" in tour  # a macro whose name starts with _
     assert "NULL AS maybe" in tour  # var('x', none)
     assert "TIMESTAMP('${new Date().toISOString()}')" in tour  # run_started_at
@@ -302,8 +314,12 @@ def test_jaffle_shop(tmp_path):
     _, files = convert(JAFFLE, profiles_dir=PROFILES)
     disabled = [p for p, c in files.items() if "disabled: true" in c]
     assert not disabled, disabled
-    # Assertions name models and count actions only: no SQL from jaffle-shop,
-    # which has no licence, is quoted here or printed when one fails.
-    compiled = compile_dataform(files, tmp_path / "jaffle")
+    # Checks name models and count actions only, and compile errors are shown
+    # without Dataform's stacks: no SQL from jaffle-shop, which has no licence,
+    # is quoted here or printed when one fails.
+    compiled = compile_dataform(files, tmp_path / "jaffle", show_sql=False)
     tables = {t["target"]["name"] for t in compiled["tables"]}
     assert {"orders", "customers", "metricflow_time_spine"} <= tables
+    # The README's numbers: 13 models, and 27 dbt tests as 21 assertions.
+    assert len(compiled["tables"]) == 13
+    assert len(compiled["assertions"]) == 21
