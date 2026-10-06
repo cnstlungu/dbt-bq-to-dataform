@@ -180,16 +180,6 @@ These are reported, not converted:
 - **Schema and database names** come from the parse target. They include
   whatever a custom `generate_schema_name` returned for that target.
 
-### Verified on one project, not on yours
-
-The tests check that conversions render through dbt's macros and compile in
-Dataform; they don't run the result on BigQuery. jaffle-shop was also built
-on BigQuery both ways (see below) and matched dbt-bigquery row for row. That
-is one small project. It has no incremental models, contracts, hooks,
-snapshots, source freshness or partitioning, and its seeds were loaded by dbt
-rather than converted, so the check says nothing about those. Run your
-converted project against a copy of your data before you switch.
-
 ## Results on public projects
 
 Conversions of public dbt-bigquery projects on 2026-10-05, with packages
