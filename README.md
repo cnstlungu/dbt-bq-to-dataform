@@ -185,9 +185,10 @@ These are reported, not converted:
 The tests check that conversions render through dbt's macros and compile in
 Dataform; they don't run the result on BigQuery. jaffle-shop was also built
 on BigQuery both ways (see below) and matched dbt-bigquery row for row. That
-is one small project with no incremental models, so it says nothing about
-those paths. Run your converted project against a copy of your data before
-you switch.
+is one small project. It has no incremental models, contracts, hooks,
+snapshots, source freshness or partitioning, and its seeds were loaded by dbt
+rather than converted, so the check says nothing about those. Run your
+converted project against a copy of your data before you switch.
 
 ## Results on public projects
 
@@ -208,6 +209,10 @@ cannot be redistributed.
 commit) was run on BigQuery twice from the same raw tables:
 - once with dbt-bigquery 1.12.1;
 - once as converted by this tool, with the Dataform CLI 3.0.71.
+
+That commit declares `require-dbt-version: ">=2.0.0"`, so dbt 1.12 ran it with
+`DBT_VERSION_CHECK=false`. The converter's own `dbt parse` skips the check the
+same way.
 
 All 13 models matched dbt's build, 7 tables and 6 views, on these checks:
 - **Schemas:** the same column names, types and order.
